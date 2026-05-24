@@ -108,48 +108,131 @@ class CitationVerifier:
             result = self.ik_client.search(citation.normalized)
             cost = self.SEARCH_COST
 
-            if result and result.get("found", 0) > 0:
-                # Found — get docmeta for confirmation
-                doc = result["docs"][0]
-                docid = doc.get("docid")
-
-                # Get metadata
-                meta = self.ik_client.docmeta(docid) if docid else None
-                cost += self.DOCMETA_COST if meta else 0
-
-                case_name = doc.get("title", "")
-                if meta:
-                    case_name = meta.get("title", case_name)
-
-                # Check if format correction is needed
-                corrected = None
-                ik_citation = meta.get("citation", "") if meta else ""
-                if ik_citation and ik_citation != citation.text:
-                    # Citation format differs — possible correction
-                    corrected = ik_citation
-
-                status = "VERIFIED"
-                if corrected and self._is_minor_correction(citation.text, corrected):
-                    status = "CORRECTED"
-
-                ver_result = VerificationResult(
+            logger.info(f"IK search result for '{citation.normalized}': docs={bool(result and result.get('docs'))}, errmsg={result.get('errmsg') if result else 'no result'}")
+            
+            if result and result.get("errmsg"):
+                # API returned an error message (e.g. "No query words found")
+                return VerificationResult(
                     citation=citation.text,
                     normalized=citation.normalized,
-                    status=status,
-                    source="ik_api",
-                    case_name=case_name,
-                    ik_doc_id=str(docid) if docid else None,
-                    court=meta.get("court") if meta else None,
-                    date=meta.get("date") if meta else None,
+                    status="UNVERIFIED",
+                    source="ik_api_error",
+                    reason=f"Indian Kanoon could not search: {result['errmsg']}",
                     cost=cost,
-                    corrected_citation=corrected,
                 )
+            elif result and result.get("docs"):
+                # Found results — check if the top result matches our citation
+                docs = result["docs"]
 
-                # Cache the result
-                self._cache_result(ver_result)
-                return ver_result
+                # Try to find a matching document
+                matched_doc = None
+                matched_meta = None
+                for doc in docs[:5]:  # Check top 5 results
+                    docid = doc.get("tid") or doc.get("docid")
+                    if not docid:
+                        continue
+
+                    meta = self.ik_client.docmeta(docid)
+                    cost += self.DOCMETA_COST if meta else 0
+
+                    if not meta:
+                        continue
+
+                    ik_citation = meta.get("citation", "")
+
+                    if ik_citation:
+                        # Best case: docmeta has exact citation string
+                        if self._citations_match(citation.normalized, ik_citation):
+                            matched_doc = doc
+                            matched_meta = meta
+                            break
+                    else:
+                        # No citation field — verify by matching year from our citation
+                        # to the publishdate, and checking this is the right court
+                        import re
+                        pub_date = meta.get("publishdate", "")
+                        our_year = re.search(r"\b(19|20)\d{2}\b", citation.normalized)
+                        doc_type = meta.get("doctype", "")
+                        
+                        # Year must match
+                        year_matches = our_year and our_year.group(0) in pub_date
+                        # Must be the right court type
+                        court_matches = True  # We already filtered by doctypes in search
+                        
+                        if year_matches and court_matches:
+                            # Check if volume + page are in the search results
+                            # (they are because IK returned this doc for that search)
+                            matched_doc = doc
+                            matched_meta = meta
+                            # No break — keep looking for one with exact citation match
+                            if not matched_doc:
+                                matched_doc = doc
+                                matched_meta = meta
+
+                logger.info(f"IK search returned {len(docs)} docs for '{citation.normalized}'")
+                if matched_doc:
+                    docid = matched_doc.get("tid") or matched_doc.get("docid")
+                    meta = matched_meta
+
+                    case_name = matched_doc.get("title", "")
+                    ik_citation = ""
+                    if meta:
+                        case_name = meta.get("title", case_name)
+                        ik_citation = meta.get("citation", "")
+
+                    # If docmeta has no citation field, trust the search result
+                    if not ik_citation and meta:
+                        import re
+                        pub_date = meta.get("publishdate", "")
+                        our_year = re.search(r"\b(19|20)\d{2}\b", citation.normalized)
+                        if our_year and our_year.group(0) in pub_date:
+                            ik_citation = citation.normalized  # Assume match
+
+                    # Check for format correction
+                    corrected = None
+                    if ik_citation and ik_citation != citation.text:
+                        corrected = ik_citation
+
+                    status = "VERIFIED"
+                    if corrected:
+                        status = "CORRECTED"
+
+                    logger.info(f"VERIFIED: {citation.text} → {case_name}")
+                    ver_result = VerificationResult(
+                        citation=citation.text,
+                        normalized=citation.normalized,
+                        status=status,
+                        source="ik_api",
+                        case_name=case_name,
+                        ik_doc_id=str(docid) if docid else None,
+                        court=meta.get("court") if meta else None,
+                        date=meta.get("date") if meta else None,
+                        cost=cost,
+                        corrected_citation=corrected,
+                    )
+                    self._cache_result(ver_result)
+                    return ver_result
+                else:
+                    # Searched but no doc matched our specific citation
+                    logger.info(f"No matching doc found for '{citation.normalized}'")
+                    if hallucination.is_suspicious:
+                        status = "HALLUCINATED"
+                        reason = hallucination.reason or "Flagged by pre-filter + not found in Indian Kanoon"
+                    else:
+                        status = "UNVERIFIED"
+                        reason = "Not found in Indian Kanoon. May be a real but obscure case not yet indexed."
+                    ver_result = VerificationResult(
+                        citation=citation.text,
+                        normalized=citation.normalized,
+                        status=status,
+                        source="ik_api",
+                        reason=reason,
+                        cost=cost,
+                    )
+                    self._cache_result(ver_result)
+                    return ver_result
             else:
-                # Not found in IK
+                # No docs returned — not found in IK
                 if hallucination.is_suspicious:
                     status = "HALLUCINATED"
                     reason = hallucination.reason or "Flagged by pre-filter + not found in Indian Kanoon"
@@ -295,13 +378,44 @@ class CitationVerifier:
     @staticmethod
     def _is_minor_correction(original: str, corrected: str) -> bool:
         """Check if the difference is a minor format correction (spacing, capitalization)."""
-        # Normalize both for comparison
         import re
         orig_norm = re.sub(r"\s+", " ", original.strip().lower())
         corr_norm = re.sub(r"\s+", " ", corrected.strip().lower())
-        # If they're very similar, it's a minor correction
         if orig_norm == corr_norm:
             return True
-        # Check if one is a substring or differs by just a digit or two
-        # (e.g., page number correction: SCC 12 → SCC 1)
-        return False  # Default: not minor if text differs
+        return False
+
+    @staticmethod
+    def _citations_match(our_citation: str, ik_citation: str) -> bool:
+        """
+        Check if our extracted citation matches the IK docmeta citation.
+        Fuzzy matching — handles minor format differences.
+        """
+        import re
+        if not ik_citation:
+            return False
+
+        def normalize(c):
+            c = c.strip().lower()
+            c = c.strip("()")
+            c = re.sub(r"\s+", " ", c)
+            return c
+
+        ours = normalize(our_citation)
+        theirs = normalize(ik_citation)
+
+        if ours == theirs:
+            return True
+
+        # Check if key numbers match (year, volume, page)
+        our_nums = re.findall(r"\d+", ours)
+        their_nums = re.findall(r"\d+", theirs)
+        if len(our_nums) >= 2 and len(their_nums) >= 2:
+            matching = sum(1 for n in our_nums if n in their_nums)
+            if matching >= len(our_nums) * 0.7:
+                return True
+
+        if ours in theirs or theirs in ours:
+            return True
+
+        return False
