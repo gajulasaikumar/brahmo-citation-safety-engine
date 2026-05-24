@@ -181,75 +181,13 @@ def create_app(config_class=Config):
             )
             hallucinations.append(result)
 
-        # Step 4: Verify citations (parallel)
-        # For demo mode, we know which citations are real vs fabricated
-        demo_verification_map = {
-            # Scenario 1: Hallucinated citations
-            "(2023) 4 SCC 789": ("NOT_FOUND", "Case not found in Indian Kanoon. Hallucinated — Rajesh Sharma v. State of UP does not exist."),
-            "AIR 2024 SC 567": ("NOT_FOUND", "Case not found in Indian Kanoon. Hallucinated — Amit Kumar v. Union of India does not exist."),
-            "(2021) 10 SCC 1": ("VERIFIED", "Siddharth v. State of UP — confirmed real in Indian Kanoon"),
-            "(2022) 10 SCC 51": ("VERIFIED", "Satender Kumar Antil v. CBI — confirmed real in Indian Kanoon"),
-            "(2014) 8 SCC 273": ("VERIFIED", "Arnesh Kumar v. State of Bihar — confirmed real in Indian Kanoon"),
-            "(2020) 5 SCC 12": ("CORRECTED", "Sushila Aggarwal v. State — page corrected from 12 to 1"),
-            "(2024) 8 SCC 234": ("VERIFIED", "Vikram Singh v. State — confirmed real in Indian Kanoon"),
-            # Scenario 3: Impossible citations
-            "(2028) 3 SCC 45": ("HALLUCINATED", "Year 2028 is in the future (> 2026). Citation cannot exist."),
-            "(2024) 47 SCC 123": ("HALLUCINATED", "SCC volume 47 is impossible. SCC rarely exceeds 20 volumes per year."),
-            "(2023) 19 SCC 456": ("NOT_FOUND", "Not found in Indian Kanoon. Volume 19 is high but possible — likely hallucinated."),
-            # Scenario 4: Format errors
-            "2024 SCC Online Del 3456": ("CORRECTED", "Corrected capitalization: SCC Online → SCC OnLine"),
-            "AIR 2024 Delhi 234": ("CORRECTED", "Corrected court code: Delhi → Del"),
-            "(2023) 5 SCC123": ("CORRECTED", "Added missing space: SCC123 → SCC 123"),
-        }
-
-        if use_sample and matter and matter.sample_output:
-            # Demo mode: use known verification results
-            from engines.citation_verifier import VerificationResult
-            verifications = []
-            for cit, hal in zip(citations, hallucinations):
-                if hal.is_hallucinated:
-                    verifications.append(VerificationResult(
-                        citation=cit.text,
-                        normalized=cit.normalized,
-                        status="HALLUCINATED",
-                        source="pre_filter",
-                        reason=hal.reason,
-                    ))
-                elif cit.text in demo_verification_map:
-                    status, reason = demo_verification_map[cit.text]
-                    case_name = None
-                    corrected = None
-                    if status == "VERIFIED":
-                        case_name = reason.split(" — ")[0] if " — " in reason else reason
-                    elif status == "CORRECTED":
-                        case_name = reason.split(" — ")[0] if " — " in reason else None
-                        if "→" in reason:
-                            corrected = reason.split("→")[-1].strip()
-                    verifications.append(VerificationResult(
-                        citation=cit.text,
-                        normalized=cit.normalized,
-                        status=status,
-                        source="demo_data",
-                        case_name=case_name,
-                        reason=reason,
-                        cost=0.3 if status in ("VERIFIED", "NOT_FOUND") else 0.0,
-                        corrected_citation=corrected,
-                    ))
-                else:
-                    verifications.append(VerificationResult(
-                        citation=cit.text,
-                        normalized=cit.normalized,
-                        status="UNVERIFIED",
-                        source="demo_data",
-                        reason="Not in demo verification database",
-                        cost=0.0,
-                    ))
-        elif app.citation_verifier and citations:
+        # Step 4: Verify citations (parallel via Indian Kanoon API)
+        if app.citation_verifier and citations:
             verifications = app.citation_verifier.verify_batch(
                 citations, hallucinations
             )
         else:
-            # No verifier — mark all as UNVERIFIED
+            # No IK API — use pre-filter only, mark rest as UNVERIFIED
             from engines.citation_verifier import VerificationResult
             verifications = []
             for cit, hal in zip(citations, hallucinations):
@@ -261,13 +199,21 @@ def create_app(config_class=Config):
                         source="pre_filter",
                         reason=hal.reason,
                     ))
+                elif hal.is_suspicious:
+                    verifications.append(VerificationResult(
+                        citation=cit.text,
+                        normalized=cit.normalized,
+                        status="UNVERIFIED",
+                        source="pre_filter_suspicious",
+                        reason=hal.reason,
+                    ))
                 else:
                     verifications.append(VerificationResult(
                         citation=cit.text,
                         normalized=cit.normalized,
                         status="UNVERIFIED",
-                        source="no_verifier",
-                        reason="Indian Kanoon API not configured",
+                        source="no_ik_api",
+                        reason="Indian Kanoon API not configured. Connect IK API key to enable live verification.",
                     ))
 
         # Step 5: Run section normalizer on AI output
