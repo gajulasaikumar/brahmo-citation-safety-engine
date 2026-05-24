@@ -263,19 +263,23 @@ class CitationVerifier:
 
     def verify_batch(self, citations: List[ExtractedCitation],
                      hallucinations: List[HallucinationResult],
-                     max_workers: int = 5) -> List[VerificationResult]:
+                     max_workers: int = 3) -> List[VerificationResult]:
         """
         Verify multiple citations in parallel.
 
         Args:
             citations: List of extracted citations
             hallucinations: Corresponding pre-filter results
-            max_workers: Max concurrent API calls
+            max_workers: Max concurrent API calls (reduced to 3 to respect rate limits)
 
         Returns:
             List of VerificationResults (same order as input)
         """
         results = [None] * len(citations)
+
+        # Get Flask app reference for application context in threads
+        from flask import current_app
+        app = current_app._get_current_object()
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_idx = {}
@@ -284,7 +288,11 @@ class CitationVerifier:
                 if hal.is_hallucinated:
                     results[i] = self.verify_citation(cit, hal)
                 else:
-                    future = executor.submit(self.verify_citation, cit, hal)
+                    # Wrap verification in app context for DB cache access
+                    def _verify_in_context(cit=cit, hal=hal):
+                        with app.app_context():
+                            return self.verify_citation(cit, hal)
+                    future = executor.submit(_verify_in_context)
                     future_to_idx[future] = i
 
             for future in as_completed(future_to_idx):
