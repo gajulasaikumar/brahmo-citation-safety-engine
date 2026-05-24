@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}BRAHMO Citation Safety Engine{% endblock %}
+
+{% block content %}
+<!-- Top: Matter Selector + Query Input -->
+<div class="mb-6">
+    <div class="bg-gray-900 rounded-xl border border-gray-800 p-6">
+        <div class="flex items-center space-x-4 mb-4">
+            <div class="flex-1">
+                <label class="block text-sm font-medium text-gray-400 mb-1">Legal Matter</label>
+                <select id="matter-select" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                    <option value="">— Select a legal matter —</option>
+                    {% for matter in matters %}
+                    <option value="{{ matter.id }}" data-scenario="{{ matter.scenario_type or '' }}">
+                        {{ matter.client_name }} — {{ matter.title }}
+                        {% if matter.scenario_type %} [{{ matter.scenario_type }}]{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-400 mb-1">Legal Query</label>
+            <textarea id="query-input" rows="3"
+                class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-brand-500 focus:border-transparent resize-y"
+                placeholder="Enter a legal query or select a matter to auto-fill..."></textarea>
+        </div>
+
+        <div class="flex items-center space-x-3">
+            <button id="btn-generic" onclick="askGeneric()"
+                class="px-6 py-2.5 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors flex items-center space-x-2">
+                <span>Ask Generic AI</span>
+                <span class="text-xs text-gray-400">(no verification)</span>
+            </button>
+            <button id="btn-verified" onclick="askVerified()"
+                class="px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-medium transition-colors flex items-center space-x-2">
+                <span>Ask with Citation Verification</span>
+                <span class="text-xs text-blue-200">(BRAHMO engine)</span>
+            </button>
+            <label class="flex items-center space-x-2 text-sm text-gray-400 ml-4 cursor-pointer">
+                <input type="checkbox" id="use-sample" class="rounded border-gray-600 bg-gray-800 text-brand-600">
+                <span>Use sample output (demo mode)</span>
+            </label>
+            <div id="loading-indicator" class="hidden ml-4 flex items-center space-x-2 text-brand-400">
+                <svg class="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span>Processing...</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Section Alerts (query normalization) -->
+<div id="section-alerts" class="hidden mb-6">
+    <div class="bg-amber-900/30 border border-amber-700/50 rounded-xl p-4">
+        <h3 class="text-amber-400 font-semibold mb-2 flex items-center space-x-2">
+            <span>⚠️</span>
+            <span>Section Alerts — Old Law References Detected</span>
+        </h3>
+        <div id="section-alerts-content" class="space-y-2 text-sm"></div>
+    </div>
+</div>
+
+<!-- Side-by-Side Comparison -->
+<div id="comparison-panel" class="hidden mb-6">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <!-- Generic AI -->
+        <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+            <div class="bg-red-900/30 border-b border-red-800/50 px-4 py-2">
+                <h3 class="text-red-400 font-semibold text-sm flex items-center space-x-2">
+                    <span>🔴</span>
+                    <span>GENERIC AI (No Verification)</span>
+                </h3>
+            </div>
+            <div id="generic-response" class="p-4 text-gray-300 text-sm leading-relaxed max-h-[600px] overflow-y-auto whitespace-pre-wrap">
+                <!-- Generic AI response will appear here -->
+            </div>
+        </div>
+
+        <!-- BRAHMO Verified -->
+        <div class="bg-gray-900 rounded-xl border border-green-800/50 overflow-hidden">
+            <div class="bg-green-900/30 border-b border-green-800/50 px-4 py-2">
+                <h3 class="text-green-400 font-semibold text-sm flex items-center space-x-2">
+                    <span>🟢</span>
+                    <span>BRAHMO VERIFIED (Citation Safety Engine)</span>
+                </h3>
+            </div>
+            <div id="verified-response" class="p-4 text-gray-300 text-sm leading-relaxed max-h-[600px] overflow-y-auto">
+                <!-- Annotated response will appear here -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Verification Report -->
+<div id="report-panel" class="hidden mb-6">
+    <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+        <div class="bg-brand-900/30 border-b border-brand-800/50 px-4 py-2">
+            <h3 class="text-brand-400 font-semibold text-sm flex items-center space-x-2">
+                <span>📋</span>
+                <span>CITATION VERIFICATION REPORT</span>
+            </h3>
+        </div>
+        <div class="p-4">
+            <div id="report-stats" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-4"></div>
+            <div id="report-citations" class="space-y-2"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Output Section Alerts -->
+<div id="output-alerts-panel" class="hidden mb-6">
+    <div class="bg-amber-900/30 border border-amber-700/50 rounded-xl p-4">
+        <h3 class="text-amber-400 font-semibold mb-2 flex items-center space-x-2">
+            <span>⚠️</span>
+            <span>Section Alerts — Old Law References in AI Output</span>
+        </h3>
+        <div id="output-alerts-content" class="space-y-2 text-sm"></div>
+    </div>
+</div>
+{% endblock %}

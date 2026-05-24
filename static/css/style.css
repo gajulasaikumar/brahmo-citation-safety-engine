@@ -1,0 +1,133 @@
+/* BRAHMO Citation Safety Engine — Custom Styles */
+
+/* Citation badges */
+.citation-badge {
+    display: inline;
+    padding: 1px 4px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    line-height: 1.5;
+    position: relative;
+}
+
+.citation-verified {
+    background: rgba(34, 197, 94, 0.15);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.citation-corrected {
+    background: rgba(234, 179, 8, 0.15);
+    border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+.citation-unverified {
+    background: rgba(251, 146, 60, 0.15);
+    border: 1px solid rgba(251, 146, 60, 0.3);
+}
+
+.citation-removed {
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.citation-removed del {
+    text-decoration: line-through;
+    opacity: 0.7;
+}
+
+.badge-icon {
+    font-size: 0.8em;
+    margin: 0 2px;
+}
+
+.badge-label {
+    font-size: 0.75em;
+    color: #9ca3af;
+    font-style: italic;
+}
+
+/* Loading animation */
+@keyframes pulse-border {
+    0%, 100% { border-color: rgba(59, 130, 246, 0.3); }
+    50% { border-color: rgba(59, 130, 246, 0.7); }
+}
+
+.loading-active {
+    animation: pulse-border 1.5s ease-in-out infinite;
+}
+
+/* Stat cards */
+.stat-card {
+    background: rgba(31, 41, 55, 0.5);
+    border: 1px solid rgba(75, 85, 99, 0.5);
+    border-radius: 8px;
+    padding: 12px;
+    text-align: center;
+}
+
+.stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.stat-label {
+    font-size: 0.7rem;
+    color: #9ca3af;
+    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* Citation detail cards */
+.citation-detail {
+    background: rgba(31, 41, 55, 0.3);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 0.85rem;
+    border-left: 3px solid;
+}
+
+.citation-detail.verified { border-left-color: #22c55e; }
+.citation-detail.corrected { border-left-color: #eab308; }
+.citation-detail.unverified { border-left-color: #fb923c; }
+.citation-detail.removed { border-left-color: #ef4444; }
+
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+}
+::-webkit-scrollbar-track {
+    background: rgba(31, 41, 55, 0.3);
+}
+::-webkit-scrollbar-thumb {
+    background: rgba(107, 114, 128, 0.5);
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(107, 114, 128, 0.8);
+}
+
+/* Section alert items */
+.section-alert-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: rgba(31, 41, 55, 0.3);
+    border-radius: 6px;
+}
+
+.section-old {
+    color: #f87171;
+    text-decoration: line-through;
+}
+
+.section-arrow {
+    color: #fbbf24;
+}
+
+.section-new {
+    color: #4ade80;
+    font-weight: 600;
+}
